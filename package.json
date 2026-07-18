@@ -5,14 +5,13 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "export": "next build && next export"
+    "start": "next start"
   },
   "dependencies": {
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "@tensorflow/tfjs": "latest",
-    "@vladmandic/face-api": "latest"
+    "@tensorflow/tfjs": "^4.11.0",
+    "@vladmandic/face-api": "^1.7.12"
   }
 }
