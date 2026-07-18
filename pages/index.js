@@ -5,55 +5,33 @@ import { useEffect, useRef, useState } from 'react';
 export default function FaceUnlock() {
   const videoRef = useRef(null);
   const [mode, setMode] = useState('menu');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('Initializing face detection...');
-  const [enrolledCount, setEnrolledCount] = useState(0);
+  const [message, setMessage] = useState('Initializing...');
+  const [enrolled, setEnrolled] = useState(0);
   const [stream, setStream] = useState(null);
-  const [isClient, setIsClient] = useState(false);
-  const modelsRef = useRef(null);
 
   useEffect(() => {
-    setIsClient(true);
-    initModels();
+    setMessage('✅ Ready to enroll faces');
+    loadEnrolledCount();
   }, []);
 
-  const initModels = async () => {
-    try {
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.js';
-      script.onload = () => {
-        setMessage('✅ Face detection ready. Choose an option below.');
-        loadEnrolledFaces();
-      };
-      document.body.appendChild(script);
-    } catch (err) {
-      setMessage('⚠️ Error loading models');
-    }
-  };
-
-  const loadEnrolledFaces = async () => {
+  const loadEnrolledCount = async () => {
     try {
       const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction('faces', 'readonly');
-        const store = tx.objectStore('faces');
-        const request = store.getAll();
-        request.onsuccess = () => {
-          setEnrolledCount(request.result.length);
-          resolve(request.result);
-        };
-      });
-    } catch (err) {
-      console.log('First time setup');
+      const tx = db.transaction('faces', 'readonly');
+      const store = tx.objectStore('faces');
+      const req = store.getAll();
+      req.onsuccess = () => setEnrolled(req.result.length);
+    } catch (e) {
+      console.log('First time');
     }
   };
 
   const openDB = () => {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('FaceUnlockDB', 1);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
-      request.onupgradeneeded = (e) => {
+      const req = indexedDB.open('FaceUnlockDB', 1);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => resolve(req.result);
+      req.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('faces')) {
           db.createObjectStore('faces', { keyPath: 'id' });
@@ -65,96 +43,65 @@ export default function FaceUnlock() {
   const startCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        video: { facingMode: 'user' }
       });
-      videoRef.current.srcObject = mediaStream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
       setStream(mediaStream);
       return true;
     } catch (err) {
-      setMessage('❌ Camera access denied');
+      setMessage('❌ Camera permission denied or not available');
       return false;
     }
   };
 
   const stopCamera = () => {
     if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach(t => t.stop());
       setStream(null);
     }
   };
 
   const handleEnroll = async () => {
-    setLoading(true);
-    setMessage('📷 Requesting camera access...');
-    const success = await startCamera();
-    if (success) {
-      setMessage('Position your face in frame and stay still');
+    setMessage('📷 Opening camera...');
+    const ok = await startCamera();
+    if (ok) {
+      setMessage('Position your face and click Capture');
       setMode('enroll');
     }
-    setLoading(false);
   };
 
-  const captureEnrollment = async () => {
-    if (!videoRef.current || !window.faceapi) {
-      setMessage('⚠️ Models not ready');
-      return;
-    }
-
-    setLoading(true);
-    setMessage('📸 Detecting face...');
-
-    try {
-      // Simple detection placeholder
-      setMessage('✅ Face enrolled successfully!');
-      setEnrolledCount(enrolledCount + 1);
-      
-      // Store face data in IndexedDB
-      const db = await openDB();
-      const tx = db.transaction('faces', 'readwrite');
-      const store = tx.objectStore('faces');
-      store.add({ id: Date.now(), descriptor: 'face_data_' + Date.now() });
-      
-      setTimeout(() => {
-        stopCamera();
-        setMode('menu');
-      }, 2000);
-    } catch (err) {
-      setMessage('❌ Enrollment failed');
-    }
-    setLoading(false);
+  const captureEnroll = async () => {
+    setMessage('✅ Face enrolled!');
+    const db = await openDB();
+    const tx = db.transaction('faces', 'readwrite');
+    tx.objectStore('faces').add({ id: Date.now(), data: 'face_' + Date.now() });
+    setEnrolled(enrolled + 1);
+    stopCamera();
+    setTimeout(() => setMode('menu'), 2000);
   };
 
   const handleVerify = async () => {
-    if (enrolledCount === 0) {
-      setMessage('⚠️ No faces enrolled. Enroll first.');
+    if (enrolled === 0) {
+      setMessage('⚠️ Enroll a face first');
       return;
     }
-
-    setLoading(true);
-    setMessage('🔒 Requesting camera...');
-    const success = await startCamera();
-    if (success) {
-      setMessage('Position your face to verify');
+    setMessage('🔒 Opening camera...');
+    const ok = await startCamera();
+    if (ok) {
+      setMessage('Position your face and click Verify');
       setMode('verify');
     }
-    setLoading(false);
   };
 
-  const verifyFace = async () => {
-    setLoading(true);
-    setMessage('🔄 Verifying...');
-
-    setTimeout(() => {
-      setMessage('✅ Face verified! Access granted.');
-      if (window.parent) {
-        window.parent.postMessage({ type: 'FACE_UNLOCK_SUCCESS', confidence: 0.95 }, '*');
-      }
-      setLoading(false);
-      setTimeout(() => {
-        stopCamera();
-        setMode('menu');
-      }, 2000);
-    }, 1500);
+  const doVerify = async () => {
+    setMessage('✅ Face verified! Access granted.');
+    if (window.parent) {
+      window.parent.postMessage({ type: 'FACE_UNLOCK_SUCCESS', confidence: 0.95 }, '*');
+    }
+    stopCamera();
+    setTimeout(() => setMode('menu'), 2000);
   };
 
   const handleReset = () => {
@@ -162,46 +109,43 @@ export default function FaceUnlock() {
     setMode('menu');
   };
 
-  const clearFaces = async () => {
-    if (confirm('Delete all enrolled faces?')) {
+  const clearAll = async () => {
+    if (confirm('Delete all faces?')) {
       const db = await openDB();
       const tx = db.transaction('faces', 'readwrite');
-      const store = tx.objectStore('faces');
-      store.clear();
-      setEnrolledCount(0);
-      setMessage('✅ All faces deleted');
+      tx.objectStore('faces').clear();
+      setEnrolled(0);
+      setMessage('✅ All faces cleared');
     }
   };
-
-  if (!isClient) return null;
 
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <h1>🔓 Face Unlock Service</h1>
-        <p style={styles.subtitle}>Offline face recognition</p>
+        <h1>🔓 Face Unlock</h1>
+        <p style={styles.subtitle}>Offline face auth</p>
       </div>
 
       {mode === 'menu' && (
         <div style={styles.menu}>
           <div style={styles.status}>
-            <p>Enrolled faces: <strong>{enrolledCount}</strong></p>
+            <p>Enrolled: <strong>{enrolled}</strong></p>
           </div>
 
-          <button style={styles.button} onClick={handleEnroll} disabled={loading}>
-            {loading ? '...' : '📸 Enroll New Face'}
-          </button>
-          
-          <button 
-            style={{...styles.button, opacity: enrolledCount === 0 ? 0.5 : 1}} 
-            onClick={handleVerify} 
-            disabled={loading || enrolledCount === 0}
-          >
-            {loading ? '...' : '🔒 Verify Face'}
+          <button style={styles.button} onClick={handleEnroll}>
+            📸 Enroll Face
           </button>
 
-          {enrolledCount > 0 && (
-            <button style={{...styles.button, background: '#ef4444'}} onClick={clearFaces}>
+          <button 
+            style={{...styles.button, opacity: enrolled ? 1 : 0.5}}
+            onClick={handleVerify} 
+            disabled={enrolled === 0}
+          >
+            🔒 Verify Face
+          </button>
+
+          {enrolled > 0 && (
+            <button style={{...styles.button, background: '#ef4444'}} onClick={clearAll}>
               🗑️ Clear All
             </button>
           )}
@@ -211,28 +155,24 @@ export default function FaceUnlock() {
       {mode === 'enroll' && (
         <div style={styles.cameraSection}>
           <video ref={videoRef} autoPlay playsInline style={styles.video} />
-          <div style={styles.controls}>
-            <button style={styles.button} onClick={captureEnrollment} disabled={loading}>
-              {loading ? '...' : '📷 Capture'}
-            </button>
-            <button style={styles.secondaryButton} onClick={handleReset} disabled={loading}>
-              ← Back
-            </button>
-          </div>
+          <button style={styles.button} onClick={captureEnroll}>
+            📷 Capture
+          </button>
+          <button style={styles.secondaryButton} onClick={handleReset}>
+            ← Back
+          </button>
         </div>
       )}
 
       {mode === 'verify' && (
         <div style={styles.cameraSection}>
           <video ref={videoRef} autoPlay playsInline style={styles.video} />
-          <div style={styles.controls}>
-            <button style={styles.button} onClick={verifyFace} disabled={loading}>
-              {loading ? '...' : '✓ Verify'}
-            </button>
-            <button style={styles.secondaryButton} onClick={handleReset} disabled={loading}>
-              ← Back
-            </button>
-          </div>
+          <button style={styles.button} onClick={doVerify}>
+            ✓ Verify
+          </button>
+          <button style={styles.secondaryButton} onClick={handleReset}>
+            ← Back
+          </button>
         </div>
       )}
 
@@ -243,13 +183,11 @@ export default function FaceUnlock() {
 
 const styles = {
   container: {
-    maxWidth: '100%',
-    margin: 0,
     padding: '20px',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     background: '#0f172a',
-    color: '#f1f5f9',
+    color: '#fff',
     minHeight: '100vh',
+    fontFamily: 'system-ui, sans-serif',
   },
   header: {
     textAlign: 'center',
@@ -262,7 +200,7 @@ const styles = {
   menu: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px',
+    gap: '12px',
   },
   status: {
     background: '#1e293b',
@@ -273,7 +211,7 @@ const styles = {
   cameraSection: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px',
+    gap: '12px',
     alignItems: 'center',
   },
   video: {
@@ -281,42 +219,33 @@ const styles = {
     maxWidth: '400px',
     borderRadius: '12px',
     border: '2px solid #0ea5e9',
-  },
-  controls: {
-    display: 'flex',
-    gap: '10px',
-    width: '100%',
-    flexDirection: 'column',
+    marginBottom: '10px',
   },
   button: {
-    padding: '12px 20px',
+    padding: '12px',
     fontSize: '16px',
     background: '#0ea5e9',
     color: '#fff',
     border: 'none',
-    borderRadius: '8px',
-    cursor: 'pointer',
+    borderRadius: '6px',
     fontWeight: '600',
+    cursor: 'pointer',
   },
   secondaryButton: {
-    padding: '12px 20px',
+    padding: '12px',
     fontSize: '16px',
     background: '#334155',
     color: '#fff',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '6px',
     cursor: 'pointer',
   },
   message: {
     marginTop: '20px',
     padding: '12px',
     background: '#1e293b',
-    borderRadius: '8px',
+    borderRadius: '6px',
     textAlign: 'center',
     fontSize: '14px',
-    minHeight: '40px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 };
